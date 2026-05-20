@@ -1,0 +1,6 @@
+__pycache__/
+*.py[cod]
+logger/logs/
+test/results/
+checkpoints/*.pth
+checkpoints/validation_images/

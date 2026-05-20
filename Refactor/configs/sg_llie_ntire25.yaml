@@ -1,0 +1,56 @@
+model:
+  name: SG_LLIE
+  en_feature_num: 48
+  en_inter_num: 32
+  de_feature_num: 64
+  de_inter_num: 32
+  sam_number: 2
+
+training:
+  total_iter: 60000
+  batch_size: 2
+  num_workers: 2
+  gt_size: 1600
+  grad_clip: 0.01
+  seed: 100
+
+optimizer:
+  type: Adam
+  lr: 0.0002
+  betas: [0.9, 0.999]
+
+scheduler:
+  type: CosineAnnealingRestartCyclicLR
+  periods: [18400, 41600]
+  restart_weights: [1, 1]
+  eta_mins: [0.0003, 0.000001]
+
+loss:
+  charbonnier_weight: 1.0
+  perceptual_weight: 0.01
+  msssim_weight: 0.4
+  use_pretrained_vgg: false
+  feature_layers: [2]
+
+augmentation:
+  geometric: true
+
+validation:
+  val_freq: 5000
+  save_img: true
+  num_workers: 1
+  metrics: [psnr, ssim]
+
+testing:
+  self_ensemble: true
+  factor: 32
+
+logging:
+  print_freq: 20
+  save_checkpoint_freq: 1000
+  use_tb_logger: true
+  log_dir: Refactor/logger/logs
+
+paths:
+  checkpoint_dir: Refactor/checkpoints
+  result_dir: Refactor/test/results
