@@ -45,9 +45,10 @@ class PairedImageDataset(Dataset):
         lq_s = load_image(lq_s_path)
         gt_s = load_image(gt_s_path) if gt_s_path is not None else lq_s.copy()
         images = [lq, gt, lq_s, gt_s]
-        if self.phase == "train" and self.crop_size:
-            images = reflect_pad_to_size(images, self.crop_size)
-            images = paired_random_crop(images, self.crop_size)
+        if self.phase == "train":
+            if self.crop_size:
+                images = reflect_pad_to_size(images, self.crop_size)
+                images = paired_random_crop(images, self.crop_size)
             images = augment_geometric(images, self.geometric_augs)
         lq, gt, lq_s, gt_s = images
         return {

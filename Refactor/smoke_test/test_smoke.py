@@ -98,6 +98,43 @@ class RefactorSmokeTest(unittest.TestCase):
             self.assertEqual(tuple(train_batch["lq"].shape), (1, 3, 64, 64))
             self.assertEqual(tuple(val_batch["lq"].shape), (1, 3, 72, 72))
 
+    def test_full_image_training_can_apply_geometric_augmentation_without_crop(self):
+        transforms_module = importlib.import_module("data.transforms")
+        dataset_module = importlib.import_module("data.datasets.paired_image_dataset")
+        original_augment = transforms_module.augment_geometric
+        original_dataset_augment = dataset_module.augment_geometric
+        calls = []
+
+        def record_augment(images, enable=True):
+            calls.append(enable)
+            return images
+
+        transforms_module.augment_geometric = record_augment
+        dataset_module.augment_geometric = record_augment
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                for folder in ["lq", "gt", "lq_s"]:
+                    (root / folder).mkdir()
+                    image = np.full((72, 80, 3), 128, dtype=np.uint8)
+                    cv2.imwrite(str(root / folder / "sample.png"), image)
+                dataset = dataset_module.PairedImageDataset(
+                    root / "lq",
+                    root / "gt",
+                    root / "lq_s",
+                    phase="train",
+                    crop_size=None,
+                    geometric_augs=True,
+                )
+
+                sample = dataset[0]
+
+                self.assertEqual(tuple(sample["lq"].shape), (3, 72, 80))
+                self.assertEqual(calls, [True])
+        finally:
+            transforms_module.augment_geometric = original_augment
+            dataset_module.augment_geometric = original_dataset_augment
+
     def test_scheduler_steps_without_external_framework(self):
         module = importlib.import_module("utils.scheduler")
         parameter = torch.nn.Parameter(torch.ones(1))
