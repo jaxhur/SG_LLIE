@@ -11,7 +11,7 @@ def build_train_dataloader(config, paths):
         lq_dir=paths["train_lq_dir"],
         gt_dir=paths["train_gt_dir"],
         lq_s_dir=paths["train_lq_s_dir"],
-        gt_s_dir=paths["train_gt_s_dir"],
+        gt_s_dir=paths.get("train_gt_s_dir"),
         phase="train",
         crop_size=config["training"].get("gt_size"),
         geometric_augs=config.get("augmentation", {}).get("geometric", True),
@@ -28,14 +28,14 @@ def build_train_dataloader(config, paths):
 
 def build_val_dataloader(config, paths):
     """Build a validation DataLoader when validation paths exist; otherwise return `None`."""
-    required = ["val_lq_dir", "val_gt_dir", "val_lq_s_dir", "val_gt_s_dir"]
+    required = ["val_lq_dir", "val_gt_dir", "val_lq_s_dir"]
     if not all(paths.get(key) for key in required):
         return None
     dataset = PairedImageDataset(
         lq_dir=paths["val_lq_dir"],
         gt_dir=paths["val_gt_dir"],
         lq_s_dir=paths["val_lq_s_dir"],
-        gt_s_dir=paths["val_gt_s_dir"],
+        gt_s_dir=paths.get("val_gt_s_dir"),
         phase="val",
     )
     return DataLoader(

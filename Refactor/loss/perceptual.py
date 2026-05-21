@@ -3,7 +3,6 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torchvision import models
 
 
 class VGGPerceptualLoss(nn.Module):
@@ -12,6 +11,13 @@ class VGGPerceptualLoss(nn.Module):
     def __init__(self, resize=True, use_pretrained=False, feature_layers=None):
         """Create frozen VGG16 feature blocks and ImageNet normalization tensors."""
         super().__init__()
+        try:
+            from torchvision import models
+        except ImportError as exc:
+            raise ImportError(
+                "VGG perceptual loss requires torchvision and a working Pillow installation. "
+                "Either reinstall Pillow/torchvision or set loss.perceptual_weight to 0.0."
+            ) from exc
         self.feature_layers = feature_layers if feature_layers is not None else [2]
         weights = models.VGG16_Weights.IMAGENET1K_V1 if use_pretrained else None
         features = models.vgg16(weights=weights).features

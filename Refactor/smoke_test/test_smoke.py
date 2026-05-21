@@ -68,6 +68,36 @@ class RefactorSmokeTest(unittest.TestCase):
             self.assertEqual(tuple(sample["gt"].shape), (3, 64, 64))
             self.assertEqual(tuple(sample["lq_s"].shape), (3, 64, 64))
 
+    def test_dataloaders_do_not_require_gt_structure_prior(self):
+        dataloader_module = importlib.import_module("data.dataloader")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for folder in ["train_lq", "train_gt", "train_lq_s", "val_lq", "val_gt", "val_lq_s"]:
+                (root / folder).mkdir()
+                image = np.full((72, 72, 3), 128, dtype=np.uint8)
+                cv2.imwrite(str(root / folder / "sample.png"), image)
+            config = {
+                "training": {"gt_size": 64, "batch_size": 1, "num_workers": 0},
+                "validation": {"num_workers": 0},
+                "augmentation": {"geometric": False},
+            }
+            paths = {
+                "train_lq_dir": root / "train_lq",
+                "train_gt_dir": root / "train_gt",
+                "train_lq_s_dir": root / "train_lq_s",
+                "val_lq_dir": root / "val_lq",
+                "val_gt_dir": root / "val_gt",
+                "val_lq_s_dir": root / "val_lq_s",
+            }
+
+            train_loader = dataloader_module.build_train_dataloader(config, paths)
+            val_loader = dataloader_module.build_val_dataloader(config, paths)
+
+            train_batch = next(iter(train_loader))
+            val_batch = next(iter(val_loader))
+            self.assertEqual(tuple(train_batch["lq"].shape), (1, 3, 64, 64))
+            self.assertEqual(tuple(val_batch["lq"].shape), (1, 3, 72, 72))
+
     def test_scheduler_steps_without_external_framework(self):
         module = importlib.import_module("utils.scheduler")
         parameter = torch.nn.Parameter(torch.ones(1))
