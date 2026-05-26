@@ -1,18 +1,19 @@
-# NOTE 这些参数是怎么来的，原来的代码也是这样的吗，特别是model的参数、
-# sam_number在原来代码中是什么样的？
 model:
   name: SG_LLIE
+  # 
   en_feature_num: 48
   en_inter_num: 32
   de_feature_num: 64
   de_inter_num: 32
+  # NOTE 论文的图片只堆叠1个SAM,但是原始代码里堆叠2个
   sam_number: 2
 
 training:
   total_iter: 60000
   batch_size: 2
   num_workers: 2
-  gt_size: null
+  # NOTE 随机裁剪大小
+  gt_size: 256
   grad_clip: 0.01
   seed: 100
 
@@ -28,12 +29,15 @@ scheduler:
   eta_mins: [0.0003, 0.000001]
 
 loss:
+  # NOTE 权重来自于原论文
   charbonnier_weight: 1.0
   perceptual_weight: 0.01
   msssim_weight: 0.4
-  use_pretrained_vgg: false
+  use_pretrained_vgg: true
+  # NOTE 只使用了VGG的第2层特征图来计算L1损失
   feature_layers: [2]
 
+# 训练时数据增强 随机几何变换
 augmentation:
   geometric: true
 
@@ -51,8 +55,10 @@ logging:
   print_freq: 20
   save_checkpoint_freq: 1000
   use_tb_logger: true
+  # FIXME 路径有点问题
   log_dir: Refactor/logger/logs
 
 paths:
-  checkpoint_dir: Refactor/checkpoints
+  # FIXME 路径有点问题
+  checkpoint_dir: checkpoints
   result_dir: Refactor/test/results

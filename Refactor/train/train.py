@@ -179,6 +179,5 @@ def main():
     if tb_writer is not None:
         tb_writer.close()
 
-
 if __name__ == "__main__":
     main()
