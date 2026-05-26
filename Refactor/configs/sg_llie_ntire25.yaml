@@ -13,6 +13,7 @@ training:
   batch_size: 2
   num_workers: 2
   # NOTE 随机裁剪大小
+  # FIXME 如果不使用
   gt_size: 256
   grad_clip: 0.01
   seed: 100
@@ -38,22 +39,31 @@ loss:
   feature_layers: [2]
 
 # 训练时数据增强 随机几何变换
+# NOTE 论文里没有提到数据增强,但是原始代码里有,所以我也加上了,但是效果不太好
 augmentation:
   geometric: true
 
 validation:
+  # 每5000次迭代进行一次验证
   val_freq: 5000
+  # 保存验证时的增强后图片,checkpoint_dir / "validation_images"
+  # FIXME 路径有点问题
   save_img: true
+  # 开 1 个子进程读验证数据
   num_workers: 1
   metrics: [psnr, ssim]
 
 testing:
+  # 测试时不使用数据增强
   self_ensemble: false
   factor: 32
 
 logging:
+  # 每20次迭代打印一次训练日志
   print_freq: 20
+  # 每1000次迭代保存一次模型权重
   save_checkpoint_freq: 1000
+  # 使用 TensorBoard 记录日志
   use_tb_logger: true
   # FIXME 路径有点问题
   log_dir: Refactor/logger/logs

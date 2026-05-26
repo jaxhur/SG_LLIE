@@ -47,7 +47,7 @@ def load_checkpoint(path, model, optimizer=None, scheduler=None, device="cpu", s
     输出:
         checkpoint 原始字典。
     """
-    checkpoint = torch.load(path, map_location=device)
+    checkpoint = torch.load(path, map_location=device,weights_only=False)
     state_dict = checkpoint.get("params", checkpoint)
     model.load_state_dict(state_dict, strict=strict)
     if optimizer is not None and "optimizer" in checkpoint:
