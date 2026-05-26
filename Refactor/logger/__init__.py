@@ -1,4 +1,4 @@
-"""Logging package for SG_LLIE."""
+"""SG_LLIE 日志工具包。"""
 
 from logger.logger import create_logger
 

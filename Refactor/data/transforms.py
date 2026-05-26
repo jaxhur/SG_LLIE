@@ -1,4 +1,8 @@
-"""Synchronized crop, padding, and geometric augmentation utilities."""
+"""数据增强工具。
+
+这里的增强都要求 low、gt、low_s 等图像同步变化，
+否则输入和标签会错位，训练会被破坏。
+"""
 
 import random
 
@@ -7,7 +11,14 @@ import numpy as np
 
 
 def reflect_pad_to_size(images, size):
-    """Reflect-pad each HWC image in `images` so height and width are at least `size`."""
+    """把每张 HWC 图像用反射 padding 补到至少 size x size。
+
+    输入:
+        images: 多张 HWC 图像列表。
+        size: 目标最小边长。
+    输出:
+        padding 后的图像列表。
+    """
     padded = []
     for image in images:
         h, w = image.shape[:2]
@@ -20,7 +31,14 @@ def reflect_pad_to_size(images, size):
 
 
 def paired_random_crop(images, crop_size):
-    """Crop all HWC images at the same random location and return the cropped images."""
+    """对多张配对图像执行同位置随机裁剪。
+
+    输入:
+        images: 已经空间对齐的图像列表。
+        crop_size: 裁剪出的 patch 大小。
+    输出:
+        同一位置裁剪得到的图像列表。
+    """
     h, w = images[0].shape[:2]
     if h < crop_size or w < crop_size:
         raise ValueError(f"Crop size {crop_size} is larger than image size {(h, w)} after padding.")
@@ -30,7 +48,7 @@ def paired_random_crop(images, crop_size):
 
 
 def augment_geometric(images, enable=True):
-    """Apply identical random flip and rotation augmentation to all HWC images."""
+    """对多张配对图像执行相同的随机翻转/旋转增强。"""
     if not enable:
         return images
     mode = random.randint(0, 7)
@@ -38,7 +56,10 @@ def augment_geometric(images, enable=True):
 
 
 def apply_geometric_mode(image, mode):
-    """Apply one of eight flip/rotation modes to HWC image `image` and return it."""
+    """根据 mode 对单张 HWC 图像执行指定几何变换。
+
+    mode 范围为 0 到 7，覆盖原图、上下翻转、90/180/270 度旋转及组合。
+    """
     if mode == 0:
         return image
     if mode == 1:

@@ -1,1 +1,1 @@
-"""Testing entrypoints for SG_LLIE."""
+"""SG_LLIE 测试入口包。"""

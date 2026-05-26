@@ -1,4 +1,4 @@
-"""Validation utilities used during SG_LLIE training."""
+"""训练过程中使用的验证函数。"""
 
 from pathlib import Path
 
@@ -11,7 +11,18 @@ from utils.paths import ensure_dir
 
 
 def validate(model, dataloader, device, iteration, save_dir=None, save_images=True):
-    """Run validation and return averaged PSNR/SSIM metrics for `model`."""
+    """执行一次验证。
+
+    输入:
+        model: 当前训练中的 SG_LLIE 模型。
+        dataloader: 验证集 DataLoader。
+        device: cuda 或 cpu。
+        iteration: 当前训练迭代数，用于日志和保存目录命名。
+        save_dir: 验证结果图片保存目录。
+        save_images: 是否保存验证输出图。
+    输出:
+        字典，包含平均 PSNR 和 SSIM。
+    """
     model.eval()
     metric_sums = {"psnr": 0.0, "ssim": 0.0}
     count = 0

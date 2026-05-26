@@ -1,10 +1,23 @@
-"""Self-ensemble inference helpers."""
+"""测试时使用的 self-ensemble 工具。
+
+self-ensemble 会对输入做翻转/旋转，分别推理后再反变换并平均，
+通常能略微提升测试结果，但会明显增加推理时间和显存占用。
+"""
 
 import torch
 
 
 def _forward_transformed(x, s, hflip, vflip, rotate, model):
-    """Apply one transform, run the model, invert the transform, and return the prediction."""
+    """执行一次带变换的前向推理。
+
+    输入:
+        x: 输入图像张量。
+        s: 结构先验张量。
+        hflip/vflip/rotate: 是否执行水平翻转、垂直翻转、旋转。
+        model: SG_LLIE 模型。
+    输出:
+        反变换后的增强结果。
+    """
     if hflip:
         x = torch.flip(x, dims=(-2,))
         s = torch.flip(s, dims=(-2,))
@@ -25,7 +38,15 @@ def _forward_transformed(x, s, hflip, vflip, rotate, model):
 
 
 def self_ensemble(x, s, model):
-    """Average predictions over flip and rotation transforms for one input batch."""
+    """对 8 种翻转/旋转组合的预测结果求平均。
+
+    输入:
+        x: 输入图像张量。
+        s: 结构先验张量。
+        model: SG_LLIE 模型。
+    输出:
+        平均后的增强图像张量。
+    """
     outputs = []
     for hflip in [False, True]:
         for vflip in [False, True]:

@@ -1,4 +1,8 @@
-"""Optional CIConv2d structure-prior extraction utility."""
+"""结构先验提取工具。
+
+这个脚本会把普通 RGB 图像转换成结构先验图，供 SG_LLIE 的第二个输入使用。
+训练和测试时不会自动生成结构先验，需要你提前运行本脚本。
+"""
 
 import argparse
 import math
@@ -24,7 +28,7 @@ EPS = 1e-5
 
 
 def gaussian_basis_filters(scale, device, k=3):
-    """Create Gaussian and derivative basis filters for a learnable scale."""
+    """生成高斯核及其 x/y 方向导数核，用于颜色不变量计算。"""
     std = torch.pow(2, scale)
     filtersize = torch.ceil(k * std + 0.5)
     x = torch.arange(start=-filtersize.item(), end=filtersize.item() + 1, device=device)
@@ -43,7 +47,7 @@ def gaussian_basis_filters(scale, device, k=3):
 
 
 def invariant_w(e, ex, ey, el, elx, ely, ell, ellx, elly):
-    """Return W invariant response from Gaussian color-model derivatives."""
+    """根据高斯颜色模型的一阶导数计算 W 颜色不变量响应。"""
     energy = e + EPS
     wx = ex / energy
     wy = ey / energy
@@ -55,17 +59,17 @@ def invariant_w(e, ex, ey, el, elx, ely, ell, ellx, elly):
 
 
 class CIConv2d(nn.Module):
-    """Color-invariant convolution module used to extract structure priors."""
+    """颜色不变量卷积模块，用于提取图像结构先验。"""
 
     def __init__(self, k=3, scale=0.9):
-        """Create Gaussian color-model constants and a learnable scale parameter."""
+        """初始化颜色变换矩阵和可学习尺度参数。"""
         super().__init__()
         self.k = k
         self.register_buffer("gcm", torch.tensor([[0.06, 0.63, 0.27], [0.3, 0.04, -0.35], [0.34, -0.6, 0.17]]))
         self.scale = nn.Parameter(torch.tensor([scale]), requires_grad=True)
 
     def forward(self, batch):
-        """Convert BCHW RGB input into a single-channel normalized structure-prior tensor."""
+        """输入 BCHW RGB 图像，输出单通道结构先验张量。"""
         self.scale.data = torch.clamp(self.scale.data, min=-2.5, max=2.5)
         in_shape = batch.shape
         flat = batch.view(in_shape[0], in_shape[1], -1)
@@ -84,7 +88,7 @@ class CIConv2d(nn.Module):
 
 
 def save_gray(path, tensor):
-    """Save a BCHW or CHW single-channel tensor as an 8-bit grayscale image."""
+    """把单通道 Tensor 保存成 8-bit 灰度图。"""
     array = tensor.detach().float().cpu()
     if array.dim() == 4:
         array = array[0, 0]
@@ -96,7 +100,15 @@ def save_gray(path, tensor):
 
 
 def extract_priors(input_dir, output_dir, device=None):
-    """Extract structure-prior images from `input_dir` into `output_dir`."""
+    """批量提取结构先验。
+
+    输入:
+        input_dir: 原始图像目录。
+        output_dir: 结构先验保存目录。
+        device: 指定运行设备；为空时自动选择 cuda/cpu。
+    输出:
+        无返回值，逐张写出结构先验图。
+    """
     device = torch.device(device or ("cuda" if torch.cuda.is_available() else "cpu"))
     output_dir = ensure_dir(output_dir)
     model = CIConv2d().to(device).eval()
@@ -108,7 +120,7 @@ def extract_priors(input_dir, output_dir, device=None):
 
 
 def parse_args():
-    """Parse command-line arguments for standalone structure-prior extraction."""
+    """解析结构先验提取脚本的命令行参数。"""
     parser = argparse.ArgumentParser(description="Extract SG_LLIE structure priors.")
     parser.add_argument("--input_dir", required=True)
     parser.add_argument("--output_dir", required=True)
@@ -117,7 +129,7 @@ def parse_args():
 
 
 def main():
-    """Run command-line prior extraction."""
+    """执行命令行结构先验提取流程。"""
     args = parse_args()
     extract_priors(args.input_dir, args.output_dir, device=args.device)
 

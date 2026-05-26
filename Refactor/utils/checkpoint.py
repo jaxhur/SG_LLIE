@@ -1,4 +1,4 @@
-"""Checkpoint save and load helpers."""
+"""模型 checkpoint 保存和加载工具。"""
 
 from pathlib import Path
 
@@ -8,7 +8,18 @@ from utils.paths import ensure_dir
 
 
 def save_checkpoint(path, model, optimizer=None, scheduler=None, iteration=0, best_metric=None):
-    """Save model state and optional optimizer/scheduler states to `path`."""
+    """保存训练状态。
+
+    输入:
+        path: 保存路径。
+        model: SG_LLIE 模型。
+        optimizer: 可选优化器状态。
+        scheduler: 可选学习率调度器状态。
+        iteration: 当前迭代数。
+        best_metric: 当前最好指标，例如 best_psnr。
+    输出:
+        无返回值，写出 .pth 文件。
+    """
     path = Path(path)
     ensure_dir(path.parent)
     payload = {
@@ -25,7 +36,17 @@ def save_checkpoint(path, model, optimizer=None, scheduler=None, iteration=0, be
 
 
 def load_checkpoint(path, model, optimizer=None, scheduler=None, device="cpu", strict=True):
-    """Load model state from `path` and optionally restore optimizer and scheduler."""
+    """加载训练状态。
+
+    输入:
+        path: checkpoint 路径。
+        model: 需要加载参数的模型。
+        optimizer/scheduler: 如果提供，则一起恢复训练状态。
+        device: map_location 设备。
+        strict: 是否严格匹配模型参数名。
+    输出:
+        checkpoint 原始字典。
+    """
     checkpoint = torch.load(path, map_location=device)
     state_dict = checkpoint.get("params", checkpoint)
     model.load_state_dict(state_dict, strict=strict)

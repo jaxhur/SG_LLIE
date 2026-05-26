@@ -1,113 +1,85 @@
-"""Attention and normalization layers used by SG_LLIE."""
+"""SGTB 模块：Structure-Guided Transformer Block。
+
+整体结构对应论文图中的三段残差分支：
+    x -> LN -> CSA  -> 残差相加
+      -> LN -> SGCA -> 残差相加，结构先验作为 K/V
+      -> LN -> FFN  -> 残差相加
+
+本文件所有公开模块都使用 BCHW 格式，避免在主网络中频繁转换维度。
+"""
 
 import numbers
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from einops import rearrange
 
 
-class GELU(nn.Module):
-    """Apply GELU activation to the input tensor and return the activated tensor."""
-
-    def forward(self, x):
-        """Return `x` after GELU activation; input and output shapes are identical."""
-        return F.gelu(x)
+def _to_3d(x):
+    """把 BCHW 特征展平为 B(HW)C,方便对通道维做 LayerNorm """
+    return x.flatten(2).transpose(1, 2).contiguous()
 
 
-class PreNorm(nn.Module):
-    """Normalize channel-last features before passing them to a wrapped module."""
-
-    def __init__(self, dim, fn):
-        """Create a layer norm over `dim` channels and store the callable module `fn`."""
-        super().__init__()
-        self.fn = fn
-        self.norm = nn.LayerNorm(dim)
-
-    def forward(self, x, *args, **kwargs):
-        """Normalize channel-last tensor `x`, call `fn`, and return its output."""
-        return self.fn(self.norm(x), *args, **kwargs)
+def _to_4d(x, h, w):
+    """把 B(HW)C 特征还原为 BCHW 图像特征。"""
+    b, _, c = x.shape
+    return x.transpose(1, 2).contiguous().view(b, c, h, w)
 
 
-class FeedForward(nn.Module):
-    """Depth-wise convolutional feed-forward block for channel-last features."""
-
-    def __init__(self, dim, mult=4):
-        """Build a convolutional MLP that maps `dim` channels back to `dim` channels."""
-        super().__init__()
-        hidden_dim = dim * mult
-        self.net = nn.Sequential(
-            nn.Conv2d(dim, hidden_dim, 1, 1, bias=False),
-            GELU(),
-            nn.Conv2d(hidden_dim, hidden_dim, 3, 1, 1, bias=False, groups=hidden_dim),
-            GELU(),
-            nn.Conv2d(hidden_dim, dim, 1, 1, bias=False),
-        )
-
-    def forward(self, x):
-        """Accept a BHWC tensor and return a BHWC tensor with the same shape."""
-        out = self.net(x.permute(0, 3, 1, 2).contiguous())
-        return out.permute(0, 2, 3, 1)
+def _split_heads(x, heads):
+    """把 BCHW 特征拆成 B, heads, C_per_head, HW 的多头注意力格式。"""
+    b, c, h, w = x.shape
+    return x.view(b, heads, c // heads, h * w)
 
 
-def to_3d(x):
-    """Flatten a BCHW tensor into B(HW)C for layer normalization."""
-    return rearrange(x, "b c h w -> b (h w) c")
-
-
-def to_4d(x, h, w):
-    """Restore a B(HW)C tensor into BCHW using spatial size `h` by `w`."""
-    return rearrange(x, "b (h w) c -> b c h w", h=h, w=w)
+def _merge_heads(x, h, w):
+    """把 B, heads, C_per_head, HW 的注意力结果合回 BCHW。"""
+    b, heads, c, _ = x.shape
+    return x.contiguous().view(b, heads * c, h, w)
 
 
 class BiasFreeLayerNorm(nn.Module):
-    """Layer normalization without learnable bias for flattened image features."""
+    """不带 bias 的 LayerNorm，只学习通道缩放参数。"""
 
     def __init__(self, normalized_shape):
-        """Store a learnable scale for one channel dimension."""
         super().__init__()
         if isinstance(normalized_shape, numbers.Integral):
             normalized_shape = (normalized_shape,)
         normalized_shape = torch.Size(normalized_shape)
         if len(normalized_shape) != 1:
-            raise ValueError("Layer norm expects a single channel dimension.")
+            raise ValueError("LayerNorm expects one channel dimension.")
+
         self.weight = nn.Parameter(torch.ones(normalized_shape))
-        self.normalized_shape = normalized_shape
 
     def forward(self, x):
-        """Normalize the last dimension of `x` and return the scaled tensor."""
-        sigma = x.var(-1, keepdim=True, unbiased=False)
-        return x / torch.sqrt(sigma + 1e-5) * self.weight
-
+        """在最后一个维度上归一化，输入通常是 B(HW)C。"""
+        variance = x.var(-1, keepdim=True, unbiased=False)
+        return x / torch.sqrt(variance + 1e-5) * self.weight
 
 class WithBiasLayerNorm(nn.Module):
-    """Layer normalization with learnable scale and bias for image features."""
+    """带 bias 的 LayerNorm，同时学习通道缩放和平移参数。"""
 
     def __init__(self, normalized_shape):
-        """Create learnable scale and bias parameters for one channel dimension."""
         super().__init__()
         if isinstance(normalized_shape, numbers.Integral):
             normalized_shape = (normalized_shape,)
         normalized_shape = torch.Size(normalized_shape)
         if len(normalized_shape) != 1:
-            raise ValueError("Layer norm expects a single channel dimension.")
+            raise ValueError("LayerNorm expects one channel dimension.")
+
         self.weight = nn.Parameter(torch.ones(normalized_shape))
         self.bias = nn.Parameter(torch.zeros(normalized_shape))
-        self.normalized_shape = normalized_shape
 
     def forward(self, x):
-        """Normalize the last dimension of `x` and return the affine-transformed tensor."""
-        mu = x.mean(-1, keepdim=True)
-        sigma = x.var(-1, keepdim=True, unbiased=False)
-        return (x - mu) / torch.sqrt(sigma + 1e-5) * self.weight + self.bias
-
+        """在最后一个维度上做标准 LayerNorm，输入通常是 B(HW)C。"""
+        mean = x.mean(-1, keepdim=True)
+        variance = x.var(-1, keepdim=True, unbiased=False)
+        return (x - mean) / torch.sqrt(variance + 1e-5) * self.weight + self.bias
 
 class LayerNorm2d(nn.Module):
-    """Apply channel-wise layer normalization to BCHW image tensors."""
+    """面向 BCHW 图像特征的 LayerNorm 包装层。"""
 
     def __init__(self, dim, norm_type="WithBias"):
-        """Choose bias-free or bias-enabled normalization for `dim` channels."""
         super().__init__()
         if norm_type == "BiasFree":
             self.body = BiasFreeLayerNorm(dim)
@@ -115,114 +87,179 @@ class LayerNorm2d(nn.Module):
             self.body = WithBiasLayerNorm(dim)
 
     def forward(self, x):
-        """Normalize BCHW tensor `x` over channels and return a BCHW tensor."""
+        """先展平空间维，再对通道维归一化，最后恢复 BCHW。"""
         h, w = x.shape[-2:]
-        return to_4d(self.body(to_3d(x)), h, w)
+        return _to_4d(self.body(_to_3d(x)), h, w)
 
 
-class IlluminationGuidedMSA(nn.Module):
-    """Multi-head self-attention used inside SG_LLIE feature blocks."""
+class ChannelSelfAttention(nn.Module):
+    """CSA：通道自注意力，采用QKV的方式，不同通道之间互相交流信息。"""
 
-    def __init__(self, dim, dim_head=64, heads=8):
-        """Create query/key/value projections for `heads` attention heads."""
+    def __init__(self, dim, heads=1, bias=False):
         super().__init__()
-        self.num_heads = heads
-        self.dim_head = dim_head
-        self.to_q = nn.Linear(dim, dim_head * heads, bias=False)
-        self.to_k = nn.Linear(dim, dim_head * heads, bias=False)
-        self.to_v = nn.Linear(dim, dim_head * heads, bias=False)
-        self.rescale = nn.Parameter(torch.ones(heads, 1, 1))
-        self.proj = nn.Linear(dim_head * heads, dim, bias=True)
-        self.pos_emb = nn.Sequential(
-            nn.Conv2d(dim, dim, 3, 1, 1, bias=False, groups=dim),
-            GELU(),
-            nn.Conv2d(dim, dim, 3, 1, 1, bias=False, groups=dim),
+        if dim % heads != 0:
+            raise ValueError(f"dim={dim} must be divisible by heads={heads}.")
+
+        # 多头注意力的头数
+        self.heads = heads
+        # 可学习缩放参数，调节注意力分数的尺度。每个 head 都有一个自己的缩放因子。
+        self.temperature = nn.Parameter(torch.ones(heads, 1, 1))
+        # 1x1 卷积把输入特征从 C 通道映射成 3C 通道,作为qkv
+        self.qkv = nn.Conv2d(dim, dim * 3, kernel_size=1, bias=bias)
+        # 深度可分离卷积,groups=dim * 3，每个通道单独做 3x3 卷积，不混合通道。
+        # 在 Q/K/V 中引入局部空间上下文
+        self.qkv_dwconv = nn.Conv2d(
+            dim * 3,
+            dim * 3,
+            kernel_size=3,
+            stride=1,
+            padding=1,
+            groups=dim * 3,
+            bias=bias,
         )
-        self.dim = dim
-
-    def forward(self, x):
-        """Accept a BHWC tensor and return self-attended BHWC features."""
-        b, h, w, c = x.shape
-        tokens = x.reshape(b, h * w, c)
-        q_inp = self.to_q(tokens)
-        k_inp = self.to_k(tokens)
-        v_inp = self.to_v(tokens)
-        q, k, v = map(
-            lambda t: rearrange(t, "b n (h d) -> b h n d", h=self.num_heads),
-            (q_inp, k_inp, v_inp),
-        )
-        q = F.normalize(q.transpose(-2, -1), dim=-1, p=2)
-        k = F.normalize(k.transpose(-2, -1), dim=-1, p=2)
-        v = v.transpose(-2, -1)
-        attn = (k @ q.transpose(-2, -1)) * self.rescale
-        attn = attn.softmax(dim=-1)
-        out = attn @ v
-        out = out.permute(0, 3, 1, 2).reshape(b, h * w, self.num_heads * self.dim_head)
-        out_c = self.proj(out).view(b, h, w, c)
-        out_p = self.pos_emb(v_inp.reshape(b, h, w, c).permute(0, 3, 1, 2)).permute(0, 2, 3, 1)
-        return out_c + out_p
-
-
-class CrossAttention(nn.Module):
-    """Inject structure-prior features into restoration features through attention."""
-
-    def __init__(self, dim, num_heads, bias):
-        """Create query projection for image features and key/value projection for prior features."""
-        super().__init__()
-        self.num_heads = num_heads
-        self.temperature = nn.Parameter(torch.ones(num_heads, 1, 1))
-        self.kv = nn.Conv2d(dim, dim * 2, kernel_size=1, bias=bias)
-        self.kv_dwconv = nn.Conv2d(dim * 2, dim * 2, 3, 1, 1, groups=dim * 2, bias=bias)
-        self.q = nn.Conv2d(dim, dim, kernel_size=1, bias=bias)
-        self.q_dwconv = nn.Conv2d(dim, dim, 3, 1, 1, groups=dim, bias=bias)
+        # 1x1 卷积把注意力结果重新投影一下，输出通道仍然是 C
         self.project_out = nn.Conv2d(dim, dim, kernel_size=1, bias=bias)
 
-    def forward(self, x, s):
-        """Use BCHW feature tensor `x` and BCHW prior tensor `s`; return BHWC features."""
+    def forward(self, x):
+        """先用卷积得到 Q/K/V，计算通道和通道之间的注意力关系，最后重新组合特征。"""
         b, _, h, w = x.shape
-        kv = self.kv_dwconv(self.kv(s))
-        k, v = kv.chunk(2, dim=1)
-        k = rearrange(k, "b (head c) h w -> b head c (h w)", head=self.num_heads)
-        v = rearrange(v, "b (head c) h w -> b head c (h w)", head=self.num_heads)
-        q = self.q_dwconv(self.q(x))
-        q = rearrange(q, "b (head c) h w -> b head c (h w)", head=self.num_heads)
+
+        # 拆出qkv
+        q, k, v = self.qkv_dwconv(self.qkv(x)).chunk(3, dim=1)
+
+        # 转成多头形式，在每个 head 内做通道维注意力。
+        q = _split_heads(q, self.heads)
+        k = _split_heads(k, self.heads)
+        v = _split_heads(v, self.heads)
+
+        # 沿着空间维 H*W 做 L2 归一化（每个通道被看成长度为 H*W 的向量，归一化）
         q = F.normalize(q, dim=-1)
         k = F.normalize(k, dim=-1)
-        attn = (q @ k.transpose(-2, -1)) * self.temperature
-        attn = attn.softmax(dim=-1)
-        out = attn @ v
-        out = rearrange(out, "b head c (h w) -> b (head c) h w", head=self.num_heads, h=h, w=w)
-        out = self.project_out(out)
-        return out.permute(0, 2, 3, 1)
+
+        # q=[B, heads, C_head, H*W];k.transpose(-2,-1)=[B, heads, H*W, C_head]
+        # attention=[B, heads, C_head, C_head]每个通道和其他通道之间的相关性
+        attention = (q @ k.transpose(-2, -1)) * self.temperature
+        attention = attention.softmax(dim=-1)
+        # v=[B, heads, C_head, H*W];out=[B, heads, C_head, H*W]
+        out = attention @ v
+        out = _merge_heads(out, h, w)
+        return self.project_out(out)
 
 
-class IlluminationGuidedAttentionBlock(nn.Module):
-    """Attention block that combines image self-attention and structure-prior cross-attention."""
+class StructureGuidedCrossAttention(nn.Module):
+    """SGCA：结构引导交叉注意力，用图像特征产生 Q，结构先验产生 K/V。
+        SGCA 和 CSA 的计算形式非常像，本质区别就是 Q/K/V 来自哪里不同。
+        CSA中QKV都是来自图像X，而SGCA中Q来自图像X，KV来自结构先验S。
+    SGCA 根据图像特征 Q 和结构先验 K 的相关性，从结构先验 V 中聚合出结构引导特征；
+    随后在 SGTB 的残差连接中，这个结构引导特征被加到图像增强特征 x 上。
+    """
 
-    def __init__(self, dim, dim_head=64, heads=8, num_blocks=2):
-        """Build `num_blocks` attention layers for `dim`-channel BCHW features."""
+    def __init__(self, dim, heads=1, bias=False):
         super().__init__()
-        self.blocks = nn.ModuleList()
-        for _ in range(num_blocks):
-            self.blocks.append(
-                nn.ModuleList(
-                    [
-                        IlluminationGuidedMSA(dim=dim, dim_head=dim_head, heads=heads),
-                        LayerNorm2d(dim),
-                        CrossAttention(dim, num_heads=heads, bias=False),
-                        PreNorm(dim, FeedForward(dim=dim)),
-                    ]
-                )
-            )
-        self.s_conv = nn.Conv2d(3, dim, kernel_size=3, stride=1, padding=1)
-        self.s_norm = LayerNorm2d(dim)
+        if dim % heads != 0:
+            raise ValueError(f"dim={dim} must be divisible by heads={heads}.")
 
-    def forward(self, x, s):
-        """Fuse BCHW feature tensor `x` with BCHW structure prior `s` and return BCHW features."""
-        s = self.s_norm(self.s_conv(s))
-        x = x.permute(0, 2, 3, 1)
-        for attn, cross_norm, cross_attn, ff in self.blocks:
-            x = attn(x) + x
-            x = cross_attn(cross_norm(x.permute(0, 3, 1, 2)), s) + x
-            x = ff(x) + x
-        return x.permute(0, 3, 1, 2)
+        self.heads = heads
+        self.temperature = nn.Parameter(torch.ones(heads, 1, 1))
+
+        self.q = nn.Conv2d(dim, dim, kernel_size=1, bias=bias)
+        self.q_dwconv = nn.Conv2d(dim, dim, kernel_size=3, stride=1, 
+                                  padding=1, groups=dim, bias=bias)
+
+        self.kv = nn.Conv2d(dim, dim * 2, kernel_size=1, bias=bias)
+        self.kv_dwconv = nn.Conv2d(
+            dim * 2,
+            dim * 2,
+            kernel_size=3,
+            stride=1,
+            padding=1,
+            groups=dim * 2,
+            bias=bias,
+        )
+        self.project_out = nn.Conv2d(dim, dim, kernel_size=1, bias=bias)
+
+    def forward(self, x, structure):
+        """输入图像特征 x 和结构特征 structure，返回结构引导后的图像特征。
+            x: [B, C, H, W] 图像特征，作为 Query 的来源。
+            structure: [B, C, H, W] 结构先验特征
+        """
+        b, _, h, w = x.shape
+
+        # 当前图像特征作为 query，结构先验作为 key/value。
+        q = self.q_dwconv(self.q(x))
+        k, v = self.kv_dwconv(self.kv(structure)).chunk(2, dim=1)
+
+        # 展平成多头通道注意力形式，空间位置作为相关性统计维度。
+        q = _split_heads(q, self.heads)
+        k = _split_heads(k, self.heads)
+        v = _split_heads(v, self.heads)
+
+        q = F.normalize(q, dim=-1)
+        k = F.normalize(k, dim=-1)
+
+        attention = (q @ k.transpose(-2, -1)) * self.temperature
+        attention = attention.softmax(dim=-1)
+
+        out = attention @ v
+        out = _merge_heads(out, h, w)
+        return self.project_out(out)
+
+
+class FeedForwardNetwork(nn.Module):
+    """FFN：卷积前馈网络，用于进一步增强局部表达。"""
+
+    def __init__(self, dim, expansion_factor=4, bias=False):
+        super().__init__()
+        hidden_dim = dim * expansion_factor
+        self.net = nn.Sequential(
+            nn.Conv2d(dim, hidden_dim, kernel_size=1, bias=bias),
+            nn.GELU(),
+            nn.Conv2d(
+                hidden_dim,
+                hidden_dim,
+                kernel_size=3,
+                stride=1,
+                padding=1,
+                groups=hidden_dim,
+                bias=bias,
+            ),
+            nn.GELU(),
+            nn.Conv2d(hidden_dim, dim, kernel_size=1, bias=bias),
+        )
+
+    def forward(self, x):
+        """输入输出均为 BCHW，通道数和空间尺寸保持不变。"""
+        return self.net(x)
+
+
+class StructureGuidedTransformerBlock(nn.Module):
+    """SGTB：严格按 LN-CSA、LN-SGCA、LN-FFN 三段残差结构组织。"""
+
+    def __init__(self, dim, heads=1, ffn_expansion_factor=4, bias=False, norm_type="WithBias"):
+        super().__init__()
+        # 原始结构先验通常是 3 通道图，这里投影到当前特征通道数 dim。
+        self.structure_proj = nn.Conv2d(3, dim, kernel_size=3, stride=1, padding=1, bias=bias)
+        self.structure_norm = LayerNorm2d(dim, norm_type=norm_type)
+
+        self.norm_csa = LayerNorm2d(dim, norm_type=norm_type)
+        self.csa = ChannelSelfAttention(dim=dim, heads=heads, bias=bias)
+
+        self.norm_sgca = LayerNorm2d(dim, norm_type=norm_type)
+        self.sgca = StructureGuidedCrossAttention(dim=dim, heads=heads, bias=bias)
+
+        self.norm_ffn = LayerNorm2d(dim, norm_type=norm_type)
+        self.ffn = FeedForwardNetwork(dim=dim, expansion_factor=ffn_expansion_factor, bias=bias)
+
+    def forward(self, x, structure):
+        """输入图像特征 x 和结构先验 structure，输出结构引导后的同形状特征。"""
+        # 调用方通常已经把结构图下采样到同尺度；这里保底对齐空间尺寸。
+        if structure.shape[-2:] != x.shape[-2:]:
+            structure = F.interpolate(structure, size=x.shape[-2:], mode="bilinear", align_corners=False)
+
+        structure = self.structure_norm(self.structure_proj(structure))
+
+        # 三段子模块都采用 Pre-LN + 残差连接，对应论文图中的三个加号。
+        x = x + self.csa(self.norm_csa(x))
+        x = x + self.sgca(self.norm_sgca(x), structure)
+        x = x + self.ffn(self.norm_ffn(x))
+        return x

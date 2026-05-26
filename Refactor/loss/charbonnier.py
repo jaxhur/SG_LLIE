@@ -1,18 +1,18 @@
-"""Charbonnier reconstruction loss."""
+"""Charbonnier 重建损失。"""
 
 import torch
 import torch.nn as nn
 
 
 class CharbonnierLoss(nn.Module):
-    """Smooth L1-like loss commonly used for image restoration."""
+    """图像复原中常用的平滑 L1 损失，比普通 L1 更稳定。"""
 
     def __init__(self, eps=1e-3):
-        """Store numerical stability constant `eps`."""
+        """初始化损失函数，eps 用于避免 sqrt(0) 的数值问题。"""
         super().__init__()
         self.eps = eps
 
     def forward(self, pred, target):
-        """Return mean Charbonnier loss between predicted and target BCHW tensors."""
+        """计算 pred 和 target 之间的平均 Charbonnier 损失。"""
         diff = pred - target
         return torch.mean(torch.sqrt(diff * diff + self.eps * self.eps))

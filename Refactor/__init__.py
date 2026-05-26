@@ -1,1 +1,1 @@
-"""Standalone SG_LLIE refactor package."""
+"""SG_LLIE 独立重构代码包。"""

@@ -1,4 +1,4 @@
-"""Image loading, saving, and tensor conversion utilities."""
+"""图像读取、保存和 Tensor 转换工具。"""
 
 from pathlib import Path
 
@@ -10,7 +10,14 @@ from utils.paths import ensure_dir
 
 
 def load_image(path, color=True):
-    """Load an image as RGB float32 in `[0, 1]`; grayscale files are expanded to 3 channels."""
+    """读取图像。
+
+    输入:
+        path: 图像路径。
+        color: True 时按 RGB 三通道读取；False 时按灰度读取。
+    输出:
+        float32 numpy 图像，数值范围 [0, 1]。
+    """
     flag = cv2.IMREAD_COLOR if color else cv2.IMREAD_GRAYSCALE
     image = cv2.imread(str(path), flag)
     if image is None:
@@ -23,7 +30,7 @@ def load_image(path, color=True):
 
 
 def save_image(path, image):
-    """Save RGB or grayscale numpy image to `path`, creating parent folders first."""
+    """保存 RGB 或灰度 numpy 图像到 path，自动创建父目录。"""
     path = Path(path)
     ensure_dir(path.parent)
     image = np.clip(image, 0.0, 1.0)
@@ -35,14 +42,14 @@ def save_image(path, image):
 
 
 def image_to_tensor(image):
-    """Convert HWC numpy image in `[0, 1]` to CHW float tensor."""
+    """把 HWC numpy 图像转换成 CHW float Tensor。"""
     if image.ndim == 2:
         image = image[..., None]
     return torch.from_numpy(image.transpose(2, 0, 1)).float()
 
 
 def tensor_to_image(tensor):
-    """Convert CHW or BCHW tensor in `[0, 1]` to HWC RGB numpy image."""
+    """把 CHW 或 BCHW Tensor 转换成 HWC numpy 图像。"""
     if tensor.dim() == 4:
         tensor = tensor.squeeze(0)
     tensor = tensor.detach().float().cpu().clamp(0.0, 1.0)
@@ -51,7 +58,7 @@ def tensor_to_image(tensor):
 
 
 def pad_to_factor(x, factor):
-    """Reflect-pad BCHW tensor `x` so height and width are divisible by `factor`."""
+    """用反射 padding 把 BCHW 张量的高宽补到 factor 的倍数。"""
     _, _, h, w = x.shape
     pad_h = (factor - h % factor) % factor
     pad_w = (factor - w % factor) % factor

@@ -1,4 +1,4 @@
-"""Model package exposing the SG_LLIE network."""
+"""模型包，对外暴露 SG_LLIE 网络。"""
 
 from model.sg_llie import SG_LLIE
 

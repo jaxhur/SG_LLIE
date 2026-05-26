@@ -1,4 +1,7 @@
-"""DataLoader construction helpers."""
+"""DataLoader 构建函数。
+
+训练脚本只负责解析路径参数，这里负责把路径和 YAML 配置组合成 PyTorch DataLoader。
+"""
 
 from torch.utils.data import DataLoader
 
@@ -6,7 +9,14 @@ from data.datasets import PairedImageDataset
 
 
 def build_train_dataloader(config, paths):
-    """Build and return the training DataLoader from YAML config and CLI paths."""
+    """构建训练 DataLoader。
+
+    输入:
+        config: YAML 解析出的配置字典。
+        paths: argparse 得到的路径字典，必须包含 train_lq_dir/train_gt_dir/train_lq_s_dir。
+    输出:
+        PyTorch DataLoader，每个 batch 包含 lq、gt、lq_s 等张量。
+    """
     dataset = PairedImageDataset(
         lq_dir=paths["train_lq_dir"],
         gt_dir=paths["train_gt_dir"],
@@ -27,7 +37,14 @@ def build_train_dataloader(config, paths):
 
 
 def build_val_dataloader(config, paths):
-    """Build a validation DataLoader when validation paths exist; otherwise return `None`."""
+    """构建验证 DataLoader。
+
+    输入:
+        config: YAML 配置。
+        paths: 路径字典；只有 val_lq_dir/val_gt_dir/val_lq_s_dir 都存在时才启用验证。
+    输出:
+        验证 DataLoader；如果验证路径不完整，则返回 None。
+    """
     required = ["val_lq_dir", "val_gt_dir", "val_lq_s_dir"]
     if not all(paths.get(key) for key in required):
         return None

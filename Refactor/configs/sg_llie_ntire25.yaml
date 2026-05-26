@@ -1,3 +1,5 @@
+# NOTE 这些参数是怎么来的，原来的代码也是这样的吗，特别是model的参数、
+# sam_number在原来代码中是什么样的？
 model:
   name: SG_LLIE
   en_feature_num: 48
@@ -10,7 +12,7 @@ training:
   total_iter: 60000
   batch_size: 2
   num_workers: 2
-  gt_size: 1600
+  gt_size: null
   grad_clip: 0.01
   seed: 100
 
@@ -42,7 +44,7 @@ validation:
   metrics: [psnr, ssim]
 
 testing:
-  self_ensemble: true
+  self_ensemble: false
   factor: 32
 
 logging:

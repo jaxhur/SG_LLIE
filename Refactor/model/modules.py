@@ -1,4 +1,8 @@
-"""Reusable convolution and multi-scale blocks for SG_LLIE."""
+"""SG_LLIE 可复用基础模块。
+
+这里放的是卷积块、残差密集块、多尺度融合块等通用组件。
+这些模块被编码器和解码器复用，用来减少主网络文件的复杂度。
+"""
 
 import torch
 import torch.nn as nn
@@ -6,10 +10,22 @@ import torch.nn.functional as F
 
 
 class ConvBlock(nn.Module):
-    """Single convolution layer used when no activation should be applied."""
+    """只包含一层卷积的基础模块，不附带激活函数。"""
 
-    def __init__(self, in_channel, out_channel, kernel_size, dilation_rate=1, padding=0, stride=1):
-        """Create a 2D convolution from `in_channel` to `out_channel`."""
+    def __init__(self, in_channel, out_channel, kernel_size, dilation_rate=1, 
+                 padding=0, stride=1):
+        """初始化卷积层。
+
+        输入参数:
+            in_channel: 输入通道数。
+            out_channel: 输出通道数。
+            kernel_size: 卷积核大小。
+            dilation_rate: 空洞卷积膨胀率。
+            padding: 填充大小。
+            stride: 步长。
+        输出:
+            无返回值。
+        """
         super().__init__()
         self.conv = nn.Conv2d(
             in_channels=in_channel,
@@ -22,15 +38,20 @@ class ConvBlock(nn.Module):
         )
 
     def forward(self, x):
-        """Apply convolution to BCHW tensor `x` and return BCHW features."""
+        """对输入特征 x 执行卷积，输入输出均为 [B, C, H, W] 格式。"""
         return self.conv(x)
 
 
 class ConvReLUBlock(nn.Module):
-    """Convolution followed by an in-place ReLU activation."""
+    """卷积 + ReLU 激活模块。"""
 
     def __init__(self, in_channel, out_channel, kernel_size, dilation_rate=1, padding=0, stride=1):
-        """Create a conv-ReLU block from `in_channel` to `out_channel`."""
+        """初始化卷积和 ReLU。
+
+        输入参数含义与 ConvBlock 相同。
+        输出:
+            无返回值。
+        """
         super().__init__()
         self.conv = nn.Sequential(
             nn.Conv2d(
@@ -46,15 +67,23 @@ class ConvReLUBlock(nn.Module):
         )
 
     def forward(self, x):
-        """Apply convolution and ReLU to BCHW tensor `x` and return BCHW features."""
+        """对输入 x 执行卷积和 ReLU，返回激活后的特征。"""
         return self.conv(x)
 
 
 class DenseBlock(nn.Module):
-    """Dense dilated convolution block without outer residual addition."""
+    """密集连接的空洞卷积块，不包含最外层残差相加。"""
 
     def __init__(self, in_channel, d_list, inter_num):
-        """Create dense conv layers using dilation rates from `d_list`."""
+        """初始化密集块。
+
+        输入参数:
+            in_channel: 输入和最终输出通道数。
+            d_list: 每个卷积层使用的 dilation 列表。
+            inter_num: 每个中间卷积层输出通道数。
+        作用:
+            每一层都会把新特征和已有特征拼接，从而增强局部表达能力。
+        """
         super().__init__()
         self.conv_layers = nn.ModuleList()
         channels = in_channel
@@ -66,7 +95,7 @@ class DenseBlock(nn.Module):
         self.conv_post = ConvBlock(channels, in_channel, 1)
 
     def forward(self, x):
-        """Process BCHW tensor `x` through dense layers and return BCHW features."""
+        """输入 x，经过多层密集连接卷积，返回和 x 通道数一致的特征。"""
         features = x
         for conv_layer in self.conv_layers:
             new_features = conv_layer(features)
@@ -75,47 +104,57 @@ class DenseBlock(nn.Module):
 
 
 class ResidualDenseBlock(nn.Module):
-    """Dense dilated convolution block with residual output."""
+    """带残差连接的密集空洞卷积块。"""
 
     def __init__(self, in_channel, d_list, inter_num):
-        """Create dense conv layers and a residual projection back to `in_channel`."""
+        """初始化残差密集块，内部使用 DenseBlock。"""
         super().__init__()
         self.body = DenseBlock(in_channel, d_list, inter_num)
 
     def forward(self, x):
-        """Return `x` plus dense-block features with the same BCHW shape."""
+        """返回 DenseBlock(x) + x，保持输入输出形状一致。"""
         return self.body(x) + x
 
 
 class ScaleAttentionFusion(nn.Module):
-    """Fuse same-resolution features produced from multiple image scales."""
+    """多尺度特征通道注意力融合模块。"""
 
     def __init__(self, in_channels, ratio=4):
-        """Create channel attention layers for a concatenated multi-scale descriptor."""
+        """初始化融合层。
+
+        输入参数:
+            in_channels: 三个尺度特征拼接后的通道数。
+            ratio: 通道压缩比例。
+        作用:
+            根据全局平均池化得到的描述子，为三个尺度分配自适应权重。
+        """
         super().__init__()
         hidden_channels = max(in_channels // ratio, 1)
-        self.squeeze = nn.AdaptiveAvgPool2d((1, 1))
-        self.compress1 = nn.Conv2d(in_channels, hidden_channels, 1, 1, 0)
-        self.compress2 = nn.Conv2d(hidden_channels, hidden_channels, 1, 1, 0)
-        self.excitation = nn.Conv2d(hidden_channels, in_channels, 1, 1, 0)
+        self.squeeze = nn.AdaptiveAvgPool2d((1, 1))  # 全局平均池化，输出 [B, C, 1, 1] 的描述子
+        self.compress1 = nn.Conv2d(in_channels, hidden_channels, 1, 1, 0) # 1x1卷积
+        self.compress2 = nn.Conv2d(hidden_channels, hidden_channels, 1, 1, 0) # 1x1卷积
+        self.excitation = nn.Conv2d(hidden_channels, in_channels, 1, 1, 0) # 1x1卷积，输出每个尺度的权重
 
     def forward(self, x0, x2, x4):
-        """Fuse BCHW tensors from original, half, and quarter scales into one BCHW tensor."""
-        pooled = torch.cat([self.squeeze(x0), self.squeeze(x2), self.squeeze(x4)], dim=1)
+        """融合原尺度、1/2 尺度、1/4 尺度特征，输出融合后的 BCHW 特征。"""
+        pooled = torch.cat([self.squeeze(x0), self.squeeze(x2),
+                             self.squeeze(x4)], dim=1) 
         weights = self.compress1(pooled)
         weights = F.relu(weights)
         weights = self.compress2(weights)
         weights = F.relu(weights)
-        weights = torch.sigmoid(self.excitation(weights))
-        w0, w2, w4 = torch.chunk(weights, 3, dim=1)
+        weights = torch.sigmoid(self.excitation(weights)) # 输出范围在 (0, 1)，表示每个尺度的权重
+        w0, w2, w4 = torch.chunk(weights, 3, dim=1) # 将权重分成三个部分，分别对应三个尺度
         return x0 * w0 + x2 * w2 + x4 * w4
 
 
 class StructureAwareMultiscaleBlock(nn.Module):
-    """Multi-scale residual block that enriches local features at three resolutions."""
+    # FIXME 实际上是Semantic-Aligned Scale-Aware Module语义对齐的尺度感知模块,判断当前图像更需要哪个尺度的信息
+
+    """结构感知多尺度块，在三个分辨率上提取并融合局部特征。"""
 
     def __init__(self, in_channel, d_list, inter_num):
-        """Create dense blocks for original, half, and quarter resolution feature streams."""
+        """初始化三个尺度的 DenseBlock 和融合模块。"""
         super().__init__()
         self.original_block = DenseBlock(in_channel, d_list, inter_num)
         self.half_block = DenseBlock(in_channel, d_list, inter_num)
@@ -123,13 +162,15 @@ class StructureAwareMultiscaleBlock(nn.Module):
         self.fusion = ScaleAttentionFusion(3 * in_channel)
 
     def forward(self, x):
-        """Return a residual BCHW tensor after processing `x` at three scales."""
+        """输入特征 x，分别在原尺度、半尺度、四分之一尺度处理后融合，并残差返回。"""
         x0 = x
+        # 双线性下采样到一半大小、四分之一大小
         x2 = F.interpolate(x, scale_factor=0.5, mode="bilinear", align_corners=False)
         x4 = F.interpolate(x, scale_factor=0.25, mode="bilinear", align_corners=False)
-        y0 = self.original_block(x0)
-        y2 = self.half_block(x2)
+        y0 = self.original_block(x0) 
+        y2 = self.half_block(x2) 
         y4 = self.quarter_block(x4)
+        # 双线性上采样，size目标空间尺寸
         y2 = F.interpolate(y2, size=y0.shape[-2:], mode="bilinear", align_corners=False)
         y4 = F.interpolate(y4, size=y0.shape[-2:], mode="bilinear", align_corners=False)
         return x + self.fusion(y0, y2, y4)

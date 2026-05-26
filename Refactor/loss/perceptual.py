@@ -1,4 +1,4 @@
-"""VGG-based perceptual loss."""
+"""基于 VGG16 的感知损失。"""
 
 import torch
 import torch.nn as nn
@@ -6,10 +6,18 @@ import torch.nn.functional as F
 
 
 class VGGPerceptualLoss(nn.Module):
-    """Compare images using selected VGG16 feature layers."""
+    """使用 VGG16 中间特征比较两张图的感知差异。"""
 
     def __init__(self, resize=True, use_pretrained=False, feature_layers=None):
-        """Create frozen VGG16 feature blocks and ImageNet normalization tensors."""
+        """初始化 VGG16 特征提取器。
+
+        输入参数:
+            resize: 是否把输入缩放到 224x224。
+            use_pretrained: 是否使用 ImageNet 预训练权重。
+            feature_layers: 使用哪些 VGG block 的输出计算 L1。
+        输出:
+            无返回值。
+        """
         super().__init__()
         try:
             from torchvision import models
@@ -37,7 +45,7 @@ class VGGPerceptualLoss(nn.Module):
         self.register_buffer("std", torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1))
 
     def forward(self, pred, target):
-        """Return L1 distance between selected VGG features of `pred` and `target`."""
+        """输入 pred 和 target，返回选定 VGG 特征之间的 L1 距离。"""
         if pred.shape[1] != 3:
             pred = pred.repeat(1, 3, 1, 1)
             target = target.repeat(1, 3, 1, 1)

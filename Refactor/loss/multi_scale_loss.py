@@ -1,4 +1,8 @@
-"""Combined multi-scale loss for SG_LLIE outputs."""
+"""SG_LLIE 的多尺度组合损失。
+
+模型会输出三个尺度的结果，这里分别和 GT、1/2 GT、1/4 GT 计算损失，
+再按权重组合成最终反向传播使用的标量 loss。
+"""
 
 import torch.nn as nn
 import torch.nn.functional as F
@@ -9,7 +13,7 @@ from loss.perceptual import VGGPerceptualLoss
 
 
 class SGLLIEMultiScaleLoss(nn.Module):
-    """Combine Charbonnier, optional VGG perceptual, and optional MS-SSIM losses."""
+    """组合 Charbonnier、VGG 感知损失和 MS-SSIM 损失。"""
 
     def __init__(
         self,
@@ -19,7 +23,17 @@ class SGLLIEMultiScaleLoss(nn.Module):
         use_pretrained_vgg=False,
         feature_layers=None,
     ):
-        """Store weights and create sub-loss modules for all SG_LLIE output scales."""
+        """初始化多尺度损失。
+
+        输入参数:
+            charbonnier_weight: Charbonnier 损失权重。
+            perceptual_weight: VGG 感知损失权重，为 0 时不启用 torchvision。
+            msssim_weight: MS-SSIM 损失权重。
+            use_pretrained_vgg: 是否使用 ImageNet 预训练 VGG。
+            feature_layers: 使用哪些 VGG 层作为感知特征。
+        输出:
+            无返回值。
+        """
         super().__init__()
         self.charbonnier_weight = charbonnier_weight
         self.perceptual_weight = perceptual_weight
@@ -32,7 +46,15 @@ class SGLLIEMultiScaleLoss(nn.Module):
         )
 
     def forward(self, outputs, target):
-        """Return total scalar loss and a log dictionary for three SG_LLIE predictions."""
+        """计算总损失。
+
+        输入:
+            outputs: 模型三个尺度输出 (out1, out2, out3)。
+            target: 原尺度 GT 图像 [B, 3, H, W]。
+        输出:
+            total: 用于 backward 的标量损失。
+            log_dict: 用于日志打印的各项损失。
+        """
         out1, out2, out3 = outputs
         targets = [
             target,

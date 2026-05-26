@@ -16,6 +16,20 @@ if str(ROOT) not in sys.path:
 
 
 class RefactorSmokeTest(unittest.TestCase):
+    def test_sgtb_uses_paper_names_and_preserves_feature_shape(self):
+        module = importlib.import_module("model.attention")
+        self.assertTrue(hasattr(module, "ChannelSelfAttention"))
+        self.assertTrue(hasattr(module, "StructureGuidedCrossAttention"))
+        self.assertTrue(hasattr(module, "StructureGuidedTransformerBlock"))
+
+        block = module.StructureGuidedTransformerBlock(dim=8, heads=1)
+        x = torch.rand(1, 8, 16, 16)
+        s = torch.rand(1, 3, 16, 16)
+
+        out = block(x, s)
+
+        self.assertEqual(tuple(out.shape), tuple(x.shape))
+
     def test_model_forward_returns_three_scales(self):
         module = importlib.import_module("model.sg_llie")
         model = module.SG_LLIE(en_feature_num=8, en_inter_num=4, de_feature_num=8, de_inter_num=4, sam_number=1)

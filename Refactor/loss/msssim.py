@@ -1,25 +1,25 @@
-"""Differentiable SSIM and MS-SSIM losses for PyTorch tensors."""
+"""可微分的 SSIM / MS-SSIM 计算函数。"""
 
 import torch
 import torch.nn.functional as F
 
 
 def gaussian(window_size, sigma, device, dtype):
-    """Return a normalized 1D Gaussian vector on `device` with `dtype`."""
+    """生成一维高斯核，用于 SSIM 的局部均值和方差计算。"""
     coords = torch.arange(window_size, device=device, dtype=dtype) - window_size // 2
     kernel = torch.exp(-(coords**2) / (2 * sigma**2))
     return kernel / kernel.sum()
 
 
 def create_window(window_size, channel, device, dtype):
-    """Create a depth-wise 2D Gaussian window for `channel` channels."""
+    """生成按通道分组卷积使用的二维高斯窗口。"""
     one_d = gaussian(window_size, 1.5, device, dtype).unsqueeze(1)
     two_d = one_d @ one_d.t()
     return two_d.expand(channel, 1, window_size, window_size).contiguous()
 
 
 def ssim(pred, target, window_size=11, size_average=True, val_range=1.0):
-    """Compute SSIM and contrast sensitivity between BCHW tensors in `[0, val_range]`."""
+    """计算 pred 和 target 的 SSIM 以及对比度敏感项。"""
     _, channel, _, _ = pred.size()
     window = create_window(window_size, channel, pred.device, pred.dtype)
     mu1 = F.conv2d(pred, window, padding=window_size // 2, groups=channel)
@@ -40,7 +40,7 @@ def ssim(pred, target, window_size=11, size_average=True, val_range=1.0):
 
 
 def ms_ssim(pred, target, window_size=11, size_average=True, normalize=True):
-    """Compute multi-scale SSIM between BCHW tensors and return a similarity score."""
+    """计算多尺度 SSIM，输出越接近 1 表示图像越相似。"""
     weights = pred.new_tensor([0.0448, 0.2856, 0.3001, 0.2363, 0.1333])
     levels = min(len(weights), max(1, int(torch.log2(torch.tensor(min(pred.shape[-2:]), device=pred.device)).item()) - 1))
     mssim = []

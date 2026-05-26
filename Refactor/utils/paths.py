@@ -1,4 +1,4 @@
-"""Path helpers used by training and inference scripts."""
+"""路径处理工具。"""
 
 from pathlib import Path
 
@@ -7,14 +7,14 @@ IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff"}
 
 
 def ensure_dir(path):
-    """Create directory `path` when needed and return it as a `Path`."""
+    """确保目录 path 存在，并以 Path 对象返回。"""
     path = Path(path)
     path.mkdir(parents=True, exist_ok=True)
     return path
 
 
 def list_image_files(folder):
-    """Return sorted image file paths from `folder` using common image extensions."""
+    """列出 folder 下常见图片格式文件，并按文件名排序。"""
     folder = Path(folder)
     if not folder.exists():
         raise FileNotFoundError(f"Image directory does not exist: {folder}")
@@ -23,7 +23,14 @@ def list_image_files(folder):
 
 
 def paired_by_name(source_dir, target_dir):
-    """Pair files by identical names and return `(source, target)` path tuples."""
+    """按相同文件名配对两个目录中的图片。
+
+    输入:
+        source_dir: 源目录。
+        target_dir: 目标目录。
+    输出:
+        [(source_path, target_path), ...]。
+    """
     source_files = list_image_files(source_dir)
     target_files = {path.name: path for path in list_image_files(target_dir)}
     pairs = []

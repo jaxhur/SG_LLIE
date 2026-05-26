@@ -1,13 +1,18 @@
-"""Optional LPIPS metric wrapper."""
+"""可选 LPIPS 指标封装。"""
 
 import torch
 
 
 class LPIPSMetric:
-    """Compute LPIPS distance when the optional `lpips` package is installed."""
+    """在安装 lpips 包时计算 LPIPS 感知距离。"""
 
     def __init__(self, net="alex", device="cuda"):
-        """Create an LPIPS model on `device`; raise a clear error if dependency is missing."""
+        """初始化 LPIPS 模型。
+        输入参数:
+            net: LPIPS 使用的主干网络名称，例如 alex。
+        输出:
+            无返回值。如果未安装 lpips，会给出清晰错误。
+        """
         try:
             import lpips
         except ImportError as exc:
@@ -17,7 +22,7 @@ class LPIPSMetric:
         self.model.eval()
 
     def __call__(self, pred, target):
-        """Return LPIPS distance for BCHW tensors in `[0, 1]`."""
+        """输入 pred 和 target，返回 LPIPS 距离；数值越小表示感知上越接近。"""
         pred = pred.to(self.device) * 2.0 - 1.0
         target = target.to(self.device) * 2.0 - 1.0
         with torch.no_grad():
